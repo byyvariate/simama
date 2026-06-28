@@ -1,8 +1,5 @@
 # simama
 SIMAMA (Smart Maternal Risk Mapping) adalah sebuah sistem berbasis data yang dirancang untuk memetakan risiko kesehatan maternal di Indonesia secara presisi. Proyek ini menggunakan analisis statistik multivariat dan spasial untuk mengidentifikasi wilayah prioritas intervensi guna mendukung percepatan penurunan Angka Kematian Ibu sesuai target SDGs.
-# SIMAMA 2025
-
-Clustering risiko kesehatan maternal antarprovinsi di Indonesia menggunakan K-Means clustering.
 
 ## Dataset
 - Data persalinan non-faskes
