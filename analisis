@@ -1,0 +1,320 @@
+# ============================================================
+# SIMAMA 2025
+# Analisis Persalinan Non-Faskes Indonesia
+# ============================================================
+
+# ============================================================
+# 1. PACKAGE
+# ============================================================
+
+packages_needed <- c(
+  "tidyverse",
+  "readxl",
+  "writexl",
+  "janitor",
+  "skimr",
+  "corrplot",
+  "factoextra",
+  "cluster",
+  "broom",
+  "scales",
+  "ggrepel",
+  "patchwork",
+  "knitr",
+  "kableExtra",
+  "RColorBrewer"
+)
+
+new_packages <- packages_needed[
+  !(packages_needed %in% installed.packages()[,"Package"])
+]
+
+if(length(new_packages))
+  install.packages(new_packages, dependencies = TRUE)
+
+invisible(
+  lapply(packages_needed,
+         library,
+         character.only = TRUE)
+)
+
+# ============================================================
+# 2. LOAD DATA
+# ============================================================
+
+load("lombaaa.RData")
+
+# pastikan objek utama bernama df
+df <- df
+
+# ============================================================
+# 3. BERSIHKAN ENVIRONMENT
+# ============================================================
+
+df_simama <- df
+
+rm(list = setdiff(ls(), "df_simama"))
+
+df <- df_simama
+
+rm(df_simama)
+
+# ============================================================
+# 4. RENAME VARIABEL
+# ============================================================
+
+df <- df %>%
+  rename(
+    non_faskes = nonfaskes_pct,
+    jkn        = Kepemilikan_JKN,
+    faskes     = total_faskes,
+    nakes      = total_nakes
+  )
+
+df$jkn <- as.numeric(df$jkn)
+
+# ============================================================
+# 5. CEK DATA
+# ============================================================
+
+str(df)
+
+colSums(is.na(df))
+
+summary(
+  df %>%
+    select(
+      non_faskes,
+      kemiskinan,
+      jkn,
+      faskes,
+      nakes
+    )
+)
+
+# ============================================================
+# 6. KORELASI SPEARMAN
+# ============================================================
+
+cor_matrix <- cor(
+  df %>%
+    select(
+      non_faskes,
+      kemiskinan,
+      jkn,
+      faskes,
+      nakes
+    ),
+  method = "spearman"
+)
+
+corrplot(
+  cor_matrix,
+  method      = "color",
+  type        = "upper",
+  addCoef.col = "black",
+  col         = colorRampPalette(
+    c("#d73027","white","#1a9850")
+  )(200),
+  title = "Matriks Korelasi Spearman",
+  mar   = c(0,0,2,0)
+)
+
+# ============================================================
+# 7. STANDARDISASI
+# ============================================================
+
+var_kmeans <- c(
+  "non_faskes",
+  "kemiskinan",
+  "jkn",
+  "faskes",
+  "nakes"
+)
+
+df_scaled <- df %>%
+  select(all_of(var_kmeans)) %>%
+  scale() %>%
+  as.data.frame()
+
+rownames(df_scaled) <- df$provinsi
+
+# ============================================================
+# 8. TENTUKAN K OPTIMAL
+# ============================================================
+
+set.seed(2025)
+
+fviz_nbclust(
+  df_scaled,
+  kmeans,
+  method = "wss",
+  k.max = 10,
+  nstart = 50
+)
+
+fviz_nbclust(
+  df_scaled,
+  kmeans,
+  method = "silhouette",
+  k.max = 10,
+  nstart = 50
+)
+
+# ============================================================
+# 9. KMEANS FINAL
+# ============================================================
+
+k_optimal <- 3
+
+set.seed(2025)
+
+km_result <- kmeans(
+  df_scaled,
+  centers = k_optimal,
+  nstart = 50,
+  iter.max = 200
+)
+
+df$klaster <- factor(
+  km_result$cluster
+)
+
+table(df$klaster)
+
+# ============================================================
+# 10. PROFIL KLASTER
+# ============================================================
+
+profil <- df %>%
+  group_by(klaster) %>%
+  summarise(
+    n               = n(),
+    rata_nonfaskes  = round(mean(non_faskes),3),
+    rata_kemiskinan = round(mean(kemiskinan),2),
+    rata_jkn        = round(mean(jkn),2),
+    rata_faskes     = round(mean(faskes),3),
+    rata_nakes      = round(mean(nakes),2),
+    contoh = paste(
+      head(provinsi,5),
+      collapse = ", "
+    )
+  ) %>%
+  arrange(desc(rata_nonfaskes))
+
+print(profil)
+
+# ============================================================
+# 11. LABEL RISIKO
+# ============================================================
+
+label_risiko <- c(
+  "2" = "Risiko Maternal Rendah",
+  "1" = "Risiko Maternal Sedang",
+  "3" = "Risiko Maternal Tinggi"
+)
+
+df$label_risiko <- recode(
+  as.character(df$klaster),
+  !!!label_risiko
+)
+
+df$label_risiko <- factor(
+  df$label_risiko,
+  levels = c(
+    "Risiko Maternal Rendah",
+    "Risiko Maternal Sedang",
+    "Risiko Maternal Tinggi"
+  )
+)
+
+table(df$label_risiko)
+
+# ============================================================
+# 12. VISUALISASI KLASTER
+# ============================================================
+
+fviz_cluster(
+  km_result,
+  data = df_scaled,
+  geom = "point",
+  ellipse.type = "convex",
+  repel = TRUE,
+  ggtheme = theme_minimal()
+) +
+  labs(
+    title = "K-Means Clustering SIMAMA 2025"
+  )
+
+# ============================================================
+# 13. HEATMAP PROFIL KLASTER
+# ============================================================
+
+df_heatmap <- df
+
+df_heatmap[var_kmeans] <-
+  scale(df_heatmap[var_kmeans])
+
+cluster_profile <- df_heatmap %>%
+  group_by(label_risiko) %>%
+  summarise(
+    across(all_of(var_kmeans), mean),
+    .groups = "drop"
+  )
+
+cluster_long <- cluster_profile %>%
+  pivot_longer(
+    cols = -label_risiko,
+    names_to = "Variabel",
+    values_to = "Zscore"
+  )
+
+ggplot(
+  cluster_long,
+  aes(
+    x = Variabel,
+    y = label_risiko,
+    fill = Zscore
+  )
+) +
+  geom_tile(
+    color = "white",
+    linewidth = 0.8
+  ) +
+  geom_text(
+    aes(
+      label = round(Zscore,2)
+    ),
+    size = 4,
+    fontface = "bold"
+  ) +
+  scale_fill_gradient2(
+    low = "#2166ac",
+    mid = "white",
+    high = "#b2182b",
+    midpoint = 0
+  ) +
+  theme_minimal()
+
+# ============================================================
+# 14. EXPORT
+# ============================================================
+
+write_xlsx(
+  df,
+  "hasil_simama_2025.xlsx"
+)
+
+save(
+  df,
+  km_result,
+  profil,
+  file = "hasil_simama_2025.RData"
+)
+
+cat(
+  "\nAnalisis selesai.\n",
+  "File tersimpan:\n",
+  "- hasil_simama_2025.xlsx\n",
+  "- hasil_simama_2025.RData\n"
+)
